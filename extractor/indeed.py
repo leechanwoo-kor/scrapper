@@ -1,31 +1,64 @@
-from requests import get
 from bs4 import BeautifulSoup
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
 
-
-def extract_jobs(keyword):
-  base_url = "https://weworkremotely.com/remote-jobs/search?term="
-
-  response = get(f"{base_url}{keyword}")
-  if response.status_code != 200:
-    print("Can't request website")
+def get_page_count(keyword):
+  options = Options()
+  options.add_argument("--no-sandbox")
+  options.add_argument("--disable-dev-shm-usage")
+  
+  browser = webdriver.Chrome(options=options)  
+  browser.get(f"https://kr.indeed.com/jobs?q={keyword}")
+  
+  html = browser.page_source
+  
+  soup = BeautifulSoup(html, "html.parser")
+  pagination = soup.find("nav", role="navigation")
+  if pagination == None:
+    return 1
+  pages = pagination.find_all("div", recursive=False)
+  count = len(pages)
+  if count >= 5:
+    return 5
   else:
-    results = []
-    soup = BeautifulSoup(response.text, "html.parser")
-    jobs = soup.find_all('section', class_="jobs")
-    for job_section in jobs:
-      job_posts = job_section.find_all('li')
-      job_posts.pop(-1)
-      for post in job_posts:
-        anchors = post.find_all('a')
-        anchor = anchors[1]
+    return count
+
+def extract_indeed_jobs(keyword):
+  results = []
+  
+  pages = get_page_count(keyword)
+  print("Fonud", pages, "pages")
+  for page in range(pages):
+    options = Options()
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    
+    browser = webdriver.Chrome(options=options)  
+    
+    base_url = "https://kr.indeed.com/jobs"
+    final_url = f"{base_url}?q={keyword}&start={page*10}"
+
+    print("Requesting", final_url)
+    browser.get(final_url)
+    
+    html = browser.page_source
+    
+    soup = BeautifulSoup(html, "html.parser")
+    job_list = soup.find("ul", class_="jobsearch-ResultsList")
+    jobs = job_list.find_all('li', recursive=False)
+    for job in jobs:
+      zone = job.find("div", class_="mosaic-zone")
+      if zone == None:
+        anchor = job.select_one("h2 a")
+        title = anchor['aria-label']
         link = anchor['href']
-        company, kind, region = anchor.find_all('span', class_="company")
-        title = anchor.find('span', class_='title')
+        company = job.find("span", class_="companyName")
+        location = job.find("div", class_="companyLocation")
         job_data = {
-          'link': f"https://weworkremotely.com{link}",
+          'link': f"https://kr.indeed.com{link}",
           'company': company.string,
-          'region': region.string,
-          'position': title.stirng
+          'location': location.string,
+          'position': title
         }
         results.append(job_data)
-    return results
+  return results
